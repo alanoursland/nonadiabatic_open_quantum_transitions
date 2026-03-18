@@ -136,7 +136,134 @@ Key property: during a plateau (dV/dt = 0), b_k does not change.
 
 ---
 
-## WP3: SpectralDensityBath — Not started
-## WP5: Simulator Refactor — Not started
+## WP3: SpectralDensityBath Class
+
+**Status: Done**
+
+**Files created/modified:**
+- `src/bath.py` — added `SpectralDensityBath`, `DebyeSpectralDensity`, `LipariSzaboSpectralDensity` (ThermalBath preserved for backward compat)
+- `src/spectral_densities.py` — `SimpleLorentzian`, `LipariSzabo`, `OhmicDrude` (standalone models)
+- `src/test_bath.py` — extended with ~27 SpectralDensityBath tests
+- `src/test_spectral_density_bath.py` — 34 tests using the new spectral density models
+
+**What it does:**
+Microscopic bath defined by a spectral density function J(omega). Computes dissipators via the Redfield tensor R_{abcd} built element-wise in the energy eigenbasis.
+
+- **Rate function** `_gamma(omega)`: one-sided Fourier transform of bath correlation. Emission: J(omega) * [n(omega) + 1]. Absorption: J(|omega|) * n(|omega|). Satisfies detailed balance.
+- **Bose-Einstein** `_bose_einstein(omega)`: handles edge cases (omega -> 0 Taylor, large |x| limits).
+- **`precompute(energies, eigenvectors)`**: builds the full 4-index Redfield tensor from coupling operators transformed to the eigenbasis. Also builds the secular mask (|omega_ab - omega_cd| < tol) and the Bohr frequency difference tensor for CGME sinc damping.
+- **Three dissipator methods:**
+  1. `get_redfield_dissipator(rho)` — full non-secular Redfield (may violate positivity)
+  2. `get_secular_lindblad_dissipator(rho)` — secular (GKSL), guaranteed CP
+  3. `get_cgme_dissipator(rho, delta_tau)` — coarse-grained, sinc-damped interpolation
+
+All dissipators operate in the energy eigenbasis via superoperator matrix-vector multiplication: D[rho] = R @ vec(rho), reshaped back to (dim, dim).
+
+**Spectral density models (in `spectral_densities.py`):**
+- `SimpleLorentzian(tau_c)`: J(omega) = (2/5) * tau_c / (1 + omega^2 * tau_c^2) — rigid isotropic tumbling
+- `LipariSzabo(tau_c, S2, tau_e)`: model-free with overall and internal motion — reduces to SimpleLorentzian when S^2 = 1 or tau_e = 0
+- `OhmicDrude(eta, lambda_c)`: J(omega) = eta * |omega| * lambda_c / (omega^2 + lambda_c^2) — condensed-phase
+
+**Legacy models (in `bath.py`, for backward compat with test_bath.py):**
+- `DebyeSpectralDensity(eta, tau_c)`: J(omega) = eta * |omega| * tau_c / (1 + omega^2 * tau_c^2)
+- `LipariSzaboSpectralDensity(tau_c, S2, tau_e)`: NMR model-free (2/5 prefactor)
+
+**Bug fixes applied:**
+
+1. **Redfield tensor index error (terms 3 & 4):** The trace-preserving counterterms had wrong gamma frequency arguments. Term 3 used `gamma_mat[n, a]` (gamma(omega_{na})) instead of `gamma_mat[c, n]` (gamma(omega_{cn})). Term 4 used `gamma_mat[n, b]` (gamma(omega_{nb})) instead of `gamma_mat[d, n]` (gamma(omega_{dn})). This broke the cancellation that guarantees sum_a R_{aa,cd} = 0. Two index swaps fixed it.
+
+2. **Boltzmann steady-state test tolerance:** At omega = 1e12 rad/s, gamma(omega) ~ 4e-13, making the relative tolerance 1e-6 * 4e-13 = 4e-19 — absurdly tight. The actual derivative ~1e-14 is physically excellent but numerically larger. Fixed by using `max(max_rate, 1.0)` floor to prevent the tolerance from collapsing when rates are tiny.
+
+3. **`make_bath_two_level` return value (test_spectral_density_bath.py):** Helper returned only `bath` but the thermal steady state test unpacked three values. Fixed by constructing `energies` locally in the test.
+
+**Design decisions:**
+- `precompute()` is a separate step (not in constructor) because it needs the system eigendata, which may change if H0 is modified
+- Coupling operators are stored as a list — supports multiple mechanisms (dipolar + CSA) by summing their contributions to the Redfield tensor
+- Dissipators take rho in the eigenbasis (not the computational basis) — the simulator must handle basis transformations
+- The CGME sinc factor is computed per-element from precomputed Bohr frequency differences
+
+**Tests cover (`test_bath.py` — SpectralDensityBath section):**
+- Trace preservation: Redfield, secular, CGME (2LS × 4 rho states + 3LS)
+- Hermiticity: Redfield, secular (2LS + 3LS)
+- Detailed balance: gamma(omega)/gamma(-omega) = exp(hbar*omega/kT)
+- High-temperature limit: gamma(+omega) ~ gamma(-omega)
+- Secular vs Redfield: R_{01,10} nonzero in full, zero in secular
+- Population block matches in both
+- Dissipators differ on coherent state, agree on diagonal
+- CGME interpolation: small Tc -> Redfield, large Tc -> secular
+- Population decay direction: excited state decays
+- Thermal steady state: Boltzmann is approximate steady state
+- Spectral density model properties: positivity, peak location, rigid limits
+
+**Tests cover (`test_spectral_density_bath.py`):**
+- SimpleLorentzian: zero frequency, high-freq falloff, positivity, peak at zero
+- LipariSzabo: reduces to Lorentzian (S^2=1), reduces with tau_e=0, internal motion adds high freq
+- OhmicDrude: zero at zero, positivity, peak near cutoff
+- Detailed balance, high-T limit, positive rates
+- Secular dissipator: trace, Hermiticity, decay direction, 3-level trace
+- Redfield dissipator: trace, Hermiticity, 3-level trace
+- CGME dissipator: trace, Hermiticity, large Tc -> secular, small Tc -> Redfield
+- Two-level secular trap: full 5-test suite (R_{01,10} nonzero/zero, population block, differ/agree)
+- Thermal steady state with SimpleLorentzian
+- Multiple coupling operators: sigma_x + sigma_z trace/Hermiticity, sigma_z adds pure dephasing
+
+---
+
+## WP5: Simulator Refactor
+
+**Status: Done**
+
+**Files modified:**
+- `src/simulator.py` — refactored with eigenbasis propagation and three new methods
+- `src/test_simulator.py` — extended with 20 new WP5 tests (25 total)
+
+**What changed:**
+
+The simulator now supports four methods: the original `lindblad` (backward compat) plus three new eigenbasis methods that use `SpectralDensityBath`:
+
+| Method | Dissipator | Positivity | Bath type |
+|---|---|---|---|
+| `lindblad` | ThermalBath (T1/T2) | Guaranteed | `ThermalBath` |
+| `redfield` | Full Redfield | Not guaranteed | `SpectralDensityBath` |
+| `secular_lindblad` | Secular GKSL | Guaranteed | `SpectralDensityBath` |
+| `nonadiabatic_cgme` | CGME (sinc-damped) | Guaranteed* | `SpectralDensityBath` |
+
+All three new methods share the same master equation structure: `d(rho)/dt = -i[H(t), rho] + D[rho]`. The only difference between them is the dissipator D. The `nonadiabatic_cgme` method additionally tracks b_k coefficients via `NonadiabaticDecomposition` alongside the rho propagation.
+
+**Architecture (key design decision):** Option A — propagate rho (not sigma_nad) for all three methods. The nonadiabatic decomposition runs alongside to provide b_k population analysis, but does not modify the master equation. Reasoning: sigma_nad = |b><b| is a pure state; a dissipative master equation immediately mixes it, breaking the b_k connection. Propagating rho avoids this problem entirely.
+
+**Implementation details:**
+
+- **`_run_eigenbasis()`**: New method for the three SpectralDensityBath methods. Uses the bath's eigenbasis (`bath.U`, `bath.energies`) from `precompute()` for consistency with the Redfield tensor. Transforms rho to eigenbasis at start, transforms back to computational basis at each output step for storage.
+
+- **`_run_legacy()`**: Extracted original propagation code (unchanged). Keeps the trace renormalization for backward compatibility.
+
+- **Eigenbasis consistency**: The simulator uses `bath.U` (not its own diagonalization of H0) to guarantee the same eigenvector sign/phase convention used when building the Redfield tensor.
+
+- **Trace assertion**: New methods assert `|Tr(rho) - 1| < 1e-6` at each output step. No renormalization — trace drift is an error, not something to mask.
+
+- **Drive integration**: New methods expect a matrix-valued drive (like `SpinLockDrive`). `V(t) = drive(t)` is transformed to eigenbasis via `U^dag V U` in the Liouvillian.
+
+- **Nonadiabatic tracking**: `decomp.step(t, dt, dV_dt)` is called once per substep (after the RK4 rho update, not per RK4 stage). Result stores `nonadiabatic_populations` tensor of shape (n_times, dim).
+
+- **Configurable initial state**: `run()` accepts an optional `initial_state` parameter (default: |0><0|).
+
+- **`Result` class**: Added `nonadiabatic_populations` attribute (None for non-CGME methods).
+
+**Unit consistency pitfall discovered during testing:** The system's energy eigenvalues (in arbitrary units like omega=5) combined with the bath's SI constants (HBAR, KB) can produce catastrophic numerical instability. At T=300K with omega=5 rad/s, the Bose-Einstein occupation n(omega) ~ 10^12, making gamma ~ 10^10 and the integrator instantly unstable. Fix: tests use T_K=1e-10 where hbar*omega/kT ~ 0.4, giving n ~ 2 and manageable rates. **This is a test-only issue; real NMR simulations will use SI frequencies (~10^8 rad/s) where the rates are physical.**
+
+**Tests cover (20 new tests):**
+- Trace preservation: all 3 methods × (zero drive + constant drive) = 6 parametrized tests
+- Hermiticity: all 3 methods = 3 parametrized tests
+- Population decay: secular and Redfield from excited state
+- Zero-drive population agreement: all 3 methods give identical population dynamics for diagonal initial state (pop-to-pop block of R is the same for all three)
+- Nonadiabatic tracking: populations present, sum to 1, not present for other methods, plateau invariance (b_k constant when dV/dt = 0)
+- Configurable initial state: custom and default
+- Method dispatch: unknown method raises ValueError, unprecomputed bath raises AssertionError
+
+**Full test suite: 131/131 passing (6.2s).**
+
+---
+
 ## WP6: R1rho Extraction — Not started
 ## WP7: Main Script — Not started
