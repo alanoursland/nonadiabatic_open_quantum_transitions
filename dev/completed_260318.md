@@ -51,7 +51,47 @@ Three bugs fixed to get the original 14 tests passing:
 
 ---
 
-## WP2: SpinLockDrive — Not started
+## WP2: SpinLockDrive Class
+
+**Status: Done**
+
+**Files modified/created:**
+- `src/signals.py` — added `SpinLockDrive` class (extends `Signal`)
+- `src/test_spin_lock.py` — 13 tests, all passing
+
+**What it does:**
+- NMR spin-lock drive in the rotating frame: `V(t) = omega_1 * f(t) * Ix + Delta * Iz`
+- Reuses the sin²/cos² envelope shape from `PlateauPulse` (reimplemented, not inherited — no carrier oscillation in the rotating frame)
+- Constructor takes NMR-natural units: Hz for power/offset, µs for timing
+- Internally converts to rad/µs for consistent time units
+- `__call__(t)` returns a **matrix** (the perturbation Hamiltonian), not a scalar
+- `derivative(t)` returns `dV/dt = omega_1 * df/dt * Ix` — **zero during plateau** (key for nonadiabatic theory)
+- Takes spin operator matrices directly (decoupled from SpinSystem)
+- `effective_field_angle()`: tilt angle θ = atan2(ω₁, Δω), π/2 on resonance
+- `effective_field_magnitude()`: ω_eff = sqrt(ω₁² + Δω²)
+
+**Design decisions:**
+- Returns matrices (not scalars) — knows which spin operators it couples to
+- Time unit: µs (matching constructor params)
+- Offset term Δω·Iz is constant (no envelope), only the RF term ω₁·Ix is ramped
+- Handles zero ramp time (instant-on) and negative times (returns zero matrix)
+
+**Tests cover:**
+- Correct perturbation matrix (on-resonance and off-resonance)
+- Hermiticity of V(t) at all times
+- Zero derivative during plateau (4 time points)
+- Nonzero derivative during ramp
+- Zero before pulse (t < 0) and after pulse completion
+- Effective field angle: π/2 on resonance, π/4 when ω₁ = Δω
+- Effective field magnitude
+- Instant-on (zero ramp time)
+- Envelope midpoint value (f = 0.5 at ramp/2)
+- Numerical vs analytical derivative agreement
+
+**Full test suite: 36/36 passing.**
+
+---
+
 ## WP3: SpectralDensityBath — Not started
 ## WP4: NonadiabaticDecomposition — Not started
 ## WP5: Simulator Refactor — Not started
