@@ -265,5 +265,64 @@ All three new methods share the same master equation structure: `d(rho)/dt = -i[
 
 ---
 
-## WP6: R1rho Extraction — Not started
+## WP6: R1rho Extraction
+
+**Status: Done**
+
+**Files created:**
+- `src/r1rho.py` — `R1rhoExtractor` and `R1rhoDispersion` classes
+- `src/test_r1rho.py` — 13 tests, all passing
+
+**What it does:**
+
+Extracts the rotating-frame relaxation rate R1rho from simulator output by fitting the decay of an observable's expectation value to a single exponential.
+
+**`R1rhoExtractor`:**
+- Takes a `Result` object and a Hermitian observable operator O
+- `get_expectation_values()` computes <O(t)> = Tr[rho(t) @ O] for all stored time steps via `torch.einsum('tij,ji->t', states, O)`
+- `fit(t_start, t_end)` fits the expectation values to M0 * exp(-R1rho * t) within the specified time window using `scipy.optimize.curve_fit`
+- Time origin is shifted to the start of the fitting window for numerical stability
+- Returns dict with `R1rho`, `M0`, and `residual_std`
+- The fitting window `[t_start, t_end]` allows excluding ramp-up/ramp-down regions
+- Raises `ValueError` if fewer than 3 data points in the window
+
+**`R1rhoDispersion`:**
+- Container for (omega1, R1rho) pairs across multiple methods
+- `add_point(method_name, omega1_hz, R1rho)` stores a single measurement
+- `get_dispersion(method_name)` returns (omega1_array, R1rho_array)
+- `plot(ax, experimental)` generates dispersion curves for all methods, with optional experimental data overlay
+
+**Design decisions:**
+- Observable is passed explicitly (not derived from SpinSystem) — keeps R1rhoExtractor decoupled from the spin system implementation
+- Uses `scipy.optimize.curve_fit` with non-negative bounds on M0 and R1rho (physical constraint)
+- Fitting window is optional — defaults to the full time range
+- R1rhoDispersion stores raw lists, converts to numpy on retrieval
+
+**Tests cover:**
+
+*Expectation values (3 tests):*
+- Identity observable gives Tr[rho] = 1 at all times
+- sigma_z gives +1 for |0><0| and -1 for |1><1|
+- sigma_x gives +1 for |+><+|
+
+*Exponential fit (5 tests):*
+- Exact exponential: recovers M0 and R to 1e-6 precision
+- Slow decay (R=0.01): relative error < 1e-4 over long time series
+- Fitting window: R1rho recovered correctly from sub-interval
+- Too few points: ValueError raised for < 3 points
+- 4x4 system (Ix ⊗ I observable): correct extraction for multi-spin system
+
+*R1rhoDispersion (4 tests):*
+- Add and retrieve: correct storage and retrieval of multiple methods
+- Empty dispersion: get_methods() returns empty list
+- Plot returns Axes object without error
+- Plot with experimental overlay works
+
+*Integration (1 test):*
+- Full Simulator → R1rhoExtractor pipeline: secular_lindblad with |+> initial state, extract <sigma_x>, fit gives R1rho > 0
+
+**Full test suite: 144/144 passing (6.9s).**
+
+---
+
 ## WP7: Main Script — Not started
