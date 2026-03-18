@@ -92,8 +92,51 @@ Three bugs fixed to get the original 14 tests passing:
 
 ---
 
+## WP4: NonadiabaticDecomposition Class
+
+**Status: Done**
+
+**Files created:**
+- `src/nonadiabatic.py` — `NonadiabaticDecomposition` class
+- `src/test_nonadiabatic.py` — 11 tests, all passing
+
+**What it does:**
+Implements the Landau-Lifshitz integration-by-parts decomposition of first-order TDPT coefficients c_k(t) = a_k(t) + b_k(t):
+
+- **a_k(t)** = -V_{k0}(t)/omega_{k0} * exp(i*omega_{k0}*t) — adiabatic (instantaneous response to V)
+- **b_k(t)** = (1/omega_{k0}) * integral dV_{k0}/dt' * exp(i*omega*t') dt' — nonadiabatic (accumulated history through dV/dt)
+
+Key property: during a plateau (dV/dt = 0), b_k does not change.
+
+**Interface:**
+- Constructor takes energy eigenvalues + eigenvectors (decoupled from SpinSystem)
+- `step(t, dt, dV_dt_matrix)` — accumulates b_k integral (trapezoidal rule: averages phase at t and t+dt, single eigenbasis transform per step)
+- `get_adiabatic_coefficients(t, V_matrix)` — returns a_k(t)
+- `get_nonadiabatic_coefficients()` — returns current raw b_k (b_0 uncorrected)
+- `get_nonadiabatic_density_matrix()` — returns sigma_nad = |b><b| with Tr=1 (b_0 normalized)
+- `get_nonadiabatic_populations()` — returns |b_k|^2 with sum=1 (b_0 normalized)
+
+**Sign correction from plan:** The plan's formula for a_k omitted a minus sign. The correct boundary term from integration by parts is a_k = **-**V_{k0}/omega_{k0} * exp(i*omega*t). Verified against direct numerical integration of c_k.
+
+**b_0 normalization (post-review fix):** Raw b_0 stays at 1 (first-order PT), so sum |b_k|^2 > 1 once any excited state is populated. Fixed by computing b_0 = sqrt(1 - sum_{k>0} |b_k|^2) in `_normalized_b()`, used by density matrix and population methods. Raw coefficients remain accessible via `get_nonadiabatic_coefficients()`. This ensures Tr(sigma_nad) = 1 for the simulator (WP5).
+
+**Quadrature (post-review fix):** Upgraded from rectangle rule (O(dt)) to trapezoidal rule (O(dt^2)). Evaluates phase factor at both endpoints t and t+dt using the same matrix elements, so only one eigenbasis transform per step.
+
+**Tests cover:**
+- Plateau invariance: 100 steps with dV/dt=0 leave b_k unchanged (atol=1e-15)
+- Linear ramp analytical: b_1 matches v*(exp(iwT)-1)/(i*w^2*T) to atol=1e-4
+- b_0 (initial state) raw value stays at exactly 1.0
+- Decomposition consistency: a_k(T) + b_k(T) = c_k(T) (direct integration) for sin^2 ramp
+- Density matrix: Tr=1, outer product of normalized b, Hermitian
+- Populations: sum=1, excited-state population correct, ground-state = 1 - excited
+- Raw coefficients unaffected by normalization
+- Non-diagonal H0: works with nontrivial eigenvectors (verifies eigenbasis transform)
+
+**Full test suite: 48/48 passing.**
+
+---
+
 ## WP3: SpectralDensityBath — Not started
-## WP4: NonadiabaticDecomposition — Not started
 ## WP5: Simulator Refactor — Not started
 ## WP6: R1rho Extraction — Not started
 ## WP7: Main Script — Not started
