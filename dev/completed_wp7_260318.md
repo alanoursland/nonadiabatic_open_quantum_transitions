@@ -92,7 +92,79 @@ Computes ¹⁵N backbone amide relaxation rates from the Solomon-Bloembergen equ
 
 ---
 
-## Task 2: Nonadiabatic Correction Estimate — Not started
+## Task 2: Nonadiabatic Correction Estimate (Phase 0 Decision Gate)
+
+**Status: Done — VERDICT: NEGATIVE**
+
+**Files created:**
+- `src/nonadiabatic_estimate.py` — analytical correction estimates and Phase 0 report
+- `src/test_nonadiabatic_estimate.py` — 29 tests, all passing
+
+**What it does:**
+Estimates the magnitude of the nonadiabatic correction to NMR R₁ρ through two independent mechanisms, and compares the secular Lindblad and nonadiabatic CGME methods numerically on a toy 2-level system.
+
+**Two correction mechanisms analyzed:**
+
+1. **Perturbative adiabatic mixing:** |a₁|² = (ω₁/(2ωN))²
+   - For NMR: ω₁ ~ 10² Hz → ~600 rad/s, ωN ~ 50 MHz → 3.2×10⁸ rad/s
+   - |a₁|² ~ 10⁻¹³ for all spin-lock powers 25–1000 Hz
+   - Maximum relative correction to R₁ρ: **6.3×10⁻¹¹**
+
+2. **CGME vs secular sinc damping:** sinc((ωab − ωcd)·δτ/2)
+   - For all NMR Bohr frequency pairs with δτ = 1 µs: |sinc| < 6.3×10⁻³
+   - Non-secular Redfield elements are effectively zero → CGME agrees with secular Lindblad
+
+**Phase 0 report output (B₀=11.7 T, τc=5 ns, S²=0.85, τe=50 ps):**
+- R₁ = 2.449 s⁻¹ (T₁ = 0.408 s)
+- R₂ = 6.789 s⁻¹ (T₂ = 0.147 s)
+- NOE = 0.790
+- Max relative correction: 6.27×10⁻¹¹ (threshold: 10⁻²)
+- **Verdict: NEGATIVE** — NMR R₁ρ cannot distinguish the nonadiabatic framework
+
+**Functions implemented:**
+- `adiabatic_mixing_fraction(omega1, omega0)` → (ω₁/(2ω₀))²
+- `cgme_sinc_retention(bohr_freq_diff, delta_tau)` → sinc(x) = sin(x)/x
+- `nonadiabatic_correction_table(nmr, omega1_values_hz)` → sweep of corrections
+- `cgme_sinc_table(nmr, delta_tau_s)` → sinc factors for all NMR Bohr frequency pairs
+- `phase0_report(B0, tau_c, S2, tau_e, delta_tau_s)` → structured report dict
+- `print_phase0_report(**kwargs)` → formatted output
+
+**Tests cover (29 tests across 8 classes):**
+
+*Adiabatic mixing fraction (6 tests):*
+- ω₁² scaling, 1/ω₀² scaling, exact value
+- NMR magnitude < 10⁻¹⁰
+- Rejects zero/negative ω₀
+
+*CGME sinc retention (6 tests):*
+- Zero frequency diff → 1, small diff → ~1, large diff → ~0
+- Exact zero at sinc(π)
+- Bounded by 1, NMR ωN gives |sinc| < 0.01
+
+*Correction table (4 tests):*
+- Correct length, monotonic increase with ω₁
+- All corrections < 10⁻⁸, correct keys
+
+*Sinc table (4 tests):*
+- Returns 6 frequency pairs, all |sinc| < 0.01
+- Includes ωN and ωH labels
+
+*Phase 0 report (6 tests):*
+- Verdict is NEGATIVE, max correction < 10⁻⁸
+- Sinc factors < 0.01, rates in physical ranges
+- Report structure complete, threshold = 0.01
+
+*Numerical simulator agreement (3 tests):*
+- Secular Lindblad vs CGME populations agree (atol=10⁻⁸) with zero drive
+- Coherences agree approximately (populations exact, off-diagonals within 10⁻²)
+  - Genuine difference due to non-secular sinc terms at toy parameters where sinc ≈ O(1)
+- Both methods decay from excited state and agree on equilibrium (atol=10⁻⁶)
+
+**Phase 0 conclusion:** The nonadiabatic correction to NMR R₁ρ is ~10⁻¹¹, which is 9 orders of magnitude below any measurable threshold (~10⁻³). The correction is so small because the spin-lock frequency ω₁ ~ 10² Hz is negligible compared to the Larmor frequency ωN ~ 10⁸ rad/s. Recommend: pivot to HITRAN/FTMW experimental candidates where the perturbation/splitting ratio can be much larger.
+
+**Full test suite: 212/212 passing (7.9s).**
+
+---
 
 ## Task 3: Rotating-Frame Simulator Adapter — Not started
 
