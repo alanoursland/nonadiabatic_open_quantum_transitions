@@ -100,3 +100,33 @@ class OhmicDrude:
 
     def __call__(self, omega):
         return self.eta * abs(omega) * self.lambda_c / (omega ** 2 + self.lambda_c ** 2)
+
+
+class CollisionalLorentzian:
+    """
+    Lorentzian spectral density for buffer gas collisions:
+
+        J(omega) = gamma_0 * tau_c / (1 + omega^2 * tau_c^2)
+
+    Models the frequency-dependent coupling strength of collisional relaxation
+    in gas-phase molecular spectroscopy. Unlike the NMR spectral densities
+    (SimpleLorentzian, LipariSzabo), this has no (2/5) orientational averaging
+    factor — that factor is specific to rank-2 dipolar/CSA interactions in
+    isotropic solution.
+
+    At omega = 0: J(0) = gamma_0 * tau_c
+    For omega >> 1/tau_c: J(omega) ~ gamma_0 / (omega^2 * tau_c)
+
+    Args:
+        gamma_0: overall coupling strength in rad/s (related to pressure-
+                 broadening coefficient: gamma_0 ~ gamma_L * CM_TO_RAD_S)
+        tau_c: collision correlation time in seconds (typically ~1e-12 s
+               for kinetic collisions at room temperature)
+    """
+
+    def __init__(self, gamma_0, tau_c):
+        self.gamma_0 = gamma_0
+        self.tau_c = tau_c
+
+    def __call__(self, omega):
+        return self.gamma_0 * self.tau_c / (1.0 + omega ** 2 * self.tau_c ** 2)
