@@ -166,10 +166,15 @@ Estimates the magnitude of the nonadiabatic correction to NMR R₁ρ through two
 
 ---
 
-## Task 3: Rotating-Frame Simulator Adapter — Not started
+## Task 3: Rotating-Frame Simulator Adapter — CANCELLED
+## Task 4: Full NMR R₁ρ Sweep — CANCELLED  
+## Task 5: Validation and Comparison — CANCELLED
+## Task 6: Comparison Against Published Data — CANCELLED
 
-## Task 4: Full NMR R₁ρ Sweep — Not started
+Reason: Phase 0 (Task 2) returned NEGATIVE. The nonadiabatic correction
+to NMR R1rho is 6.3e-11 relative, eleven orders of magnitude below the
+measurement threshold. Tasks 3-6 assumed a positive Phase 0 result.
+The NMR experimental path is definitively closed.
 
-## Task 5: Validation and Comparison — Not started
-
-## Task 6: Comparison Against Published Data — Not started
+Next: Phase 0 estimate for HITRAN line mixing or FTMW coherent transients,
+where perturbation ratios V/∆E ~ 0.1 predict corrections of ~1%.
